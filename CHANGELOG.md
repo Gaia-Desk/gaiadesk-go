@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.1
+
+- **Never hang on a dropped or stalled connection.** `WithResponseTimeout`
+  (default 16 minutes, above the API's 15-minute call limit) bounds the wait
+  for an answer to begin, sending the request included; `WithIdleTimeout`
+  (default 90 s; streams and held waits keep alive every 15 s) bounds every
+  read of a body: JSON results, error bodies, downloads (plain and sealed) and
+  event streams. Exceeded: `ErrUnreachable` / `ErrConnectionLost`, kind
+  `timeout` (a stream ends with it in its `Exit`, exit code 255), never a hang;
+  `0` is no limit. On every transport (`New`, `NewLocal`, `NewLAN`) and for a
+  client given with `WithHTTPClient`. Before, a server that went silent before
+  or during its answer (a half-open socket, a stalled proxy) hung the call.
+- **A call that changes something is sent at most once.** `net/http` silently
+  re-sent a POST carrying `Idempotency-Key` on a pooled connection that closed
+  before any answer (its body rewound with `GetBody`): an `Exec` with a key
+  could run twice with retries off. The SDK now takes that rewind away from
+  every request that is not a GET, and no longer retries a keyed POST after a
+  network failure itself; lost connections and 502/503/504 are retried for
+  GETs only, timeouts not at all.
+- Proven on a raw-socket test server: closed or reset before any response
+  byte (reads retried, bodies sent once), stalled mid-body, mid-JSON,
+  mid-stream, silent, a pooled connection that dies under a request, and a
+  300-request stress run.
+
 ## 0.1.0
 
 The first release of the GaiaDesk SDK for Go (`github.com/Gaia-Desk/gaiadesk-go`).

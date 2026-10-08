@@ -273,6 +273,9 @@ func cutOff(op string, err error) *Error {
 	if errors.Is(err, errStreamClosed) {
 		return interrupted(op, err)
 	}
+	if isTimeout(err) {
+		return AsError(err)
+	}
 	e := newError(ClassConnectionLost, "", "the transfer broke off: "+err.Error())
 	e.Op, e.Err = op, err
 	return e

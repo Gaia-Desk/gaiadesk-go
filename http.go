@@ -53,9 +53,10 @@ func WakeFor(d time.Duration) CallOption {
 	}
 }
 
-// WithIdempotencyKey sends `Idempotency-Key` on a POST: a retry with the
-// same key and the same request within 24 hours gets the first answer
-// again. It also lets the SDK retry the POST after a network failure.
+// WithIdempotencyKey sends `Idempotency-Key` on a POST: a retry of yours
+// with the same key and the same request within 24 hours gets the first
+// answer again. (The SDK itself never sends a POST again after it may have
+// reached the server, key or not.)
 func WithIdempotencyKey(key string) CallOption {
 	return func(c *callConfig) {
 		if key == "" || len(key) > 255 {
@@ -120,9 +121,11 @@ func headerInt(h http.Header, k string) int {
 //
 // It retries a call refused for a rate limit or a busy desk (429
 // `rate_limited`, `desk_busy`; 409 `idempotency_key_in_flight`) after the
-// API's Retry-After (or the backoff); a GET (and a call with an
-// idempotency key) also after a network failure, and a GET after a 502,
-// 503 or 504. Desk operations sealed end to end are sealed afresh for each
+// API's Retry-After (or the backoff); a GET also after a network failure
+// (the connection closed or reset before any answer) or a 502, 503 or 504.
+// A call that changes something is never sent again after it may have
+// reached the server, and a timeout (WithResponseTimeout, WithIdleTimeout)
+// is not retried. Desk operations sealed end to end are sealed afresh for each
 // try. A wait longer than MaxDelay is not waited: the error is returned.
 type RetryPolicy struct {
 	// MaxAttempts is the most tries in all (1: no retry).
@@ -223,7 +226,7 @@ func (c *Client) retryable(err error, r *request, attempt int, p RetryPolicy) (t
 	case e.Reason == ReasonRateLimited || e.Reason == ReasonDeskBusy || e.Reason == ReasonIdempotencyInFlight:
 		ok = true
 	case e.Kind == KindNetwork && e.Status == 0:
-		ok = safe || r.call.idemKey != ""
+		ok = safe
 	case e.Status == 502 || e.Status == 503 || e.Status == 504:
 		ok = safe && e.Reason != ReasonDeskOpsDisabled && e.Reason != "api_disabled" && e.Reason != "local_api_off"
 	}
@@ -313,9 +316,22 @@ func (c *Client) send(ctx context.Context, r *request, sealed *sealedReq) (*http
 		h.Set("Content-Type", "application/octet-stream")
 		body, length = src, r.size
 	}
-	req, err := http.NewRequestWithContext(ctx, r.method, c.url(r.path, q), body)
+	// The request's own context: cancelled when its answer has not begun
+	// within the response timeout, when a read of its body waits longer
+	// than the idle timeout, or once its body is closed.
+	rctx, cancel := context.WithCancelCause(ctx)
+	req, err := http.NewRequestWithContext(rctx, r.method, c.url(r.path, q), body)
 	if err != nil {
+		cancel(nil)
 		return nil, usageError("%s: %v", op, err)
+	}
+	if r.method != http.MethodGet && r.method != http.MethodHead {
+		// net/http re-sends a request on a pooled connection that closed
+		// before any answer when it deems it idempotent: a GET, or ANY
+		// method carrying Idempotency-Key whose body it can rewind
+		// (GetBody, set for a *bytes.Reader). A request that changes
+		// something may have reached the server: never let it be re-sent.
+		req.GetBody = nil
 	}
 	if length >= 0 {
 		req.ContentLength = length
@@ -324,10 +340,16 @@ func (c *Client) send(ctx context.Context, r *request, sealed *sealedReq) (*http
 		}
 	}
 	req.Header = h
+	timer := startHeadersTimer(c.responseTimeout, cancel)
 	res, err := c.hc.Do(req)
+	timedOut := timer.stop()
 	if err != nil {
+		cancel(nil)
 		if ctx.Err() != nil {
 			return nil, interrupted(op, ctx.Err())
+		}
+		if timedOut {
+			return nil, c.responseTimedOut(op, err)
 		}
 		if c.mapDialError != nil {
 			if e := c.mapDialError(err, op); e != nil {
@@ -346,6 +368,12 @@ func (c *Client) send(ctx context.Context, r *request, sealed *sealedReq) (*http
 		e.Err = err
 		return nil, e
 	}
+	if timedOut {
+		_ = res.Body.Close()
+		cancel(nil)
+		return nil, c.responseTimedOut(op, errResponseTimeout)
+	}
+	res.Body = newIdleBody(res.Body, c.idleTimeout, cancel, func() *Error { return c.idleTimedOut(op) })
 	if r.call.info != nil {
 		*r.call.info = ResponseInfo{
 			Status: res.StatusCode, RequestID: res.Header.Get("X-Request-Id"),
@@ -414,6 +442,9 @@ func (c *Client) call(ctx context.Context, r *request) (json.RawMessage, error) 
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, interrupted(r.op(), ctx.Err())
+		}
+		if isTimeout(err) {
+			return nil, err
 		}
 		e := newError(ClassConnectionLost, "", fmt.Sprintf("the answer was cut off: %v", err))
 		e.Op, e.Err = r.op(), err

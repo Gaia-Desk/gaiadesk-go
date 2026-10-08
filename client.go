@@ -9,7 +9,7 @@ import (
 )
 
 // Version is this SDK's version.
-const Version = "0.1.0"
+const Version = "0.1.1"
 
 // DefaultBaseURL is the hosted GaiaDesk API.
 const DefaultBaseURL = "https://api.gaiadesk.net/v1"
@@ -59,6 +59,9 @@ type Client struct {
 	e2e          *e2eLayer
 	retry        RetryPolicy
 	userAgent    string
+	// responseTimeout bounds the wait for an answer to begin, idleTimeout
+	// every read of its body (0: no limit).
+	responseTimeout, idleTimeout time.Duration
 }
 
 // Transport says which transport the client uses.
@@ -80,6 +83,8 @@ type config struct {
 	warn       func(string)
 	retry      RetryPolicy
 	userAgent  string
+	response   time.Duration
+	idle       time.Duration
 	socketPath string
 	adminToken string
 	env        func(string) string
@@ -100,7 +105,8 @@ func WithDeskToken(t string) Option {
 
 // WithHTTPClient sets the http.Client of the hosted API transport (default:
 // one of the SDK's own). Do not give it a Timeout: streams and held waits
-// last long; use contexts.
+// last long; use contexts. The SDK's response and idle timeouts hold for it
+// too.
 func WithHTTPClient(h *http.Client) Option {
 	return func(c *config) { c.mark("WithHTTPClient"); c.httpClient = h }
 }
@@ -125,6 +131,33 @@ func WithWarningHandler(f func(message string)) Option {
 // WithRetry sets the retry policy (default DefaultRetry). NoRetry turns
 // retries off.
 func WithRetry(p RetryPolicy) Option { return func(c *config) { c.mark("WithRetry"); c.retry = p } }
+
+// DefaultResponseTimeout is the default WithResponseTimeout: 16 minutes,
+// above the API's 15-minute limit on a call (a buffered Exec answers when
+// its command ends).
+const DefaultResponseTimeout = 16 * time.Minute
+
+// DefaultIdleTimeout is the default WithIdleTimeout: 90 seconds (the API's
+// streams and held waits send a keep-alive every 15 s).
+const DefaultIdleTimeout = 90 * time.Second
+
+// WithResponseTimeout sets the longest wait for an answer to begin (its
+// status and headers), sending the request (and its body) included
+// (default DefaultResponseTimeout; 0: no limit). Exceeded: ErrUnreachable,
+// kind timeout; it is not retried.
+func WithResponseTimeout(d time.Duration) Option {
+	return func(c *config) { c.mark("WithResponseTimeout"); c.response = d }
+}
+
+// WithIdleTimeout sets the longest silence while reading an answer's body
+// (a JSON result, a download, an event stream, a held wait): a limit on
+// each read, not on the whole body, so a long download that keeps flowing
+// never times out (default DefaultIdleTimeout; 0: no limit). Exceeded:
+// ErrConnectionLost, kind timeout (a Stream ends with it in its Exit); it
+// is not retried.
+func WithIdleTimeout(d time.Duration) Option {
+	return func(c *config) { c.mark("WithIdleTimeout"); c.idle = d }
+}
 
 // WithUserAgent sets the User-Agent (default `gaiadesk-go/<Version>`).
 func WithUserAgent(ua string) Option {
@@ -154,7 +187,7 @@ func WithEnv(env map[string]string) Option {
 }
 
 func newConfig(opts []Option) *config {
-	c := &config{set: map[string]bool{}, retry: DefaultRetry, env: os.Getenv}
+	c := &config{set: map[string]bool{}, retry: DefaultRetry, response: DefaultResponseTimeout, idle: DefaultIdleTimeout, env: os.Getenv}
 	for _, o := range opts {
 		if o != nil {
 			o(c)
@@ -165,7 +198,7 @@ func newConfig(opts []Option) *config {
 
 // only refuses options that do not belong to this transport.
 func (c *config) only(t Transport, allowed ...string) error {
-	ok := map[string]bool{"WithRetry": true, "WithUserAgent": true, "WithDeskToken": true}
+	ok := map[string]bool{"WithRetry": true, "WithUserAgent": true, "WithDeskToken": true, "WithResponseTimeout": true, "WithIdleTimeout": true}
 	for _, a := range allowed {
 		ok[a] = true
 	}
@@ -188,7 +221,10 @@ func (c *config) base(t Transport) (*Client, error) {
 	if c.retry.MaxAttempts < 0 || c.retry.BaseDelay < 0 || c.retry.MaxDelay < 0 {
 		return nil, usageError("the retry policy's attempts and delays are >= 0")
 	}
-	cl := &Client{transport: t, retry: c.retry, userAgent: "gaiadesk-go/" + Version}
+	if c.response < 0 || c.idle < 0 {
+		return nil, usageError("the response and idle timeouts are > 0, or 0 for no limit")
+	}
+	cl := &Client{transport: t, retry: c.retry, userAgent: "gaiadesk-go/" + Version, responseTimeout: c.response, idleTimeout: c.idle}
 	if c.userAgent != "" {
 		cl.userAgent = c.userAgent
 	}

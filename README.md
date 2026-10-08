@@ -93,7 +93,8 @@ speaks for its account to a desk. Token administration (`CreateToken`,
 `Tokens`, `RevokeToken`) is the desk owner's: a signed-in person's session.
 
 Client options: `WithBaseURL`, `WithDeskToken`, `WithHTTPClient`, `WithE2E`,
-`WithE2EKeys`, `WithWarningHandler`, `WithRetry`, `WithUserAgent` (and for
+`WithE2EKeys`, `WithWarningHandler`, `WithRetry`, `WithResponseTimeout`,
+`WithIdleTimeout`, `WithUserAgent` (and for
 `NewLocal`: `WithSocketPath`, `WithAdminToken`, `WithEnv`). Per-call options:
 `UseDeskToken`, `WakeFor`, `WithIdempotencyKey`, `CaptureResponse`,
 `WithoutRetry`.
@@ -363,14 +364,40 @@ backoff from 500 ms, honouring `Retry-After`:
 
 - any call refused for a rate limit or a busy desk (429 `rate_limited`,
   `desk_busy`; 409 `idempotency_key_in_flight`): the server did not run it;
-- a GET after a network failure or a 502/503/504;
-- a POST with `WithIdempotencyKey(k)` after a network failure (the key makes
-  the retry return the first answer instead of running twice).
+- a GET after a network failure (the connection closed or reset before any
+  answer) or a 502/503/504.
+
+A call that changes something (an exec, an upload, a job, a token, a wake) is
+never sent again after it may have reached the server, with or without an
+idempotency key; a timeout is not retried either.
 
 Sealed operations are sealed afresh for each try (a desk refuses a replayed
 seal). A `Retry-After` longer than `MaxDelay` (20 s) is returned as the
 error rather than waited. `WithRetry(gaiadesk.NoRetry)` or the per-call
 `WithoutRetry()` turn it off.
+
+**Timeouts** (`WithResponseTimeout`, `WithIdleTimeout`, on every transport:
+`New`, `NewLocal`, `NewLAN`) make a server or proxy that stops answering an
+error, never a hang:
+
+- `WithResponseTimeout` (default `DefaultResponseTimeout`, 16 minutes, above
+  the API's 15-minute call limit): the longest wait for an answer to begin,
+  sending the request included. Exceeded: `ErrUnreachable`, kind `timeout`.
+- `WithIdleTimeout` (default `DefaultIdleTimeout`, 90 s; streams and held
+  waits send a keep-alive every 15 s): the longest silence while reading a
+  body (JSON, a download, an event stream), per read, so a long download that
+  keeps flowing never times out. Exceeded mid-answer: `ErrConnectionLost`,
+  kind `timeout` (a `Stream` ends with that error in its `Exit`, exit code 255).
+- `0` is no limit; a negative value is a usage error. Both hold for a client
+  given with `WithHTTPClient` too. A connection that timed out is closed, not
+  pooled; cancelling the context still stops a call at once.
+- A connection closed or reset before any answer is `ErrUnreachable` (kind
+  `network`) at once. Go's `net/http` itself re-sends a GET (or a request it
+  could not write at all) once when the pooled connection it used was closed
+  before any answer; it would also re-send any request carrying
+  `Idempotency-Key` whose body it can rewind, so the SDK takes that rewind
+  away from every request that changes something: `Exec`, uploads, jobs,
+  tokens and wakes go at most once.
 
 `CaptureResponse(&info)` fills `ResponseInfo`: `RequestID`, `RateLimitLimit`,
 `RateLimitRemaining`, `RateLimitReset`, `IdempotentReplayed`, `Held`, `Sealed`.
