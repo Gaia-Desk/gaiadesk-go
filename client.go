@@ -116,8 +116,8 @@ func WithE2EKeys(keys map[string]string) Option {
 	return func(c *config) { c.mark("WithE2EKeys"); c.e2eKeys = keys }
 }
 
-// WithWarningHandler sets where the SDK's warnings go (default: the
-// standard logger's stderr, via os.Stderr).
+// WithWarningHandler sets where the SDK's warnings go (default: the log
+// package's standard logger).
 func WithWarningHandler(f func(message string)) Option {
 	return func(c *config) { c.mark("WithWarningHandler"); c.warn = f }
 }

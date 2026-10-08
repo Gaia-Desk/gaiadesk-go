@@ -124,11 +124,6 @@ func (c *Client) UploadFile(ctx context.Context, local, desk, remote string, opt
 	return c.Upload(ctx, desk, target, f, opts...)
 }
 
-// downloadReader is an open download.
-type downloadReader interface {
-	io.ReadCloser
-}
-
 // OpenDownload opens a file on the desk for reading: `GET
 // /desks/{id}/files?path=`. Read it to io.EOF: a transfer that breaks off
 // is an error (ErrConnectionLost), never a clean short file. Close it.
@@ -146,7 +141,7 @@ func (c *Client) OpenDownload(ctx context.Context, desk, remote string, opts ...
 	if err != nil {
 		return nil, err
 	}
-	var out downloadReader = &plainDownload{body: res.Body, op: r.op()}
+	var out io.ReadCloser = &plainDownload{body: res.Body, op: r.op()}
 	if seal != nil {
 		out = &sealedDownload{seal: seal, br: bufio.NewReaderSize(res.Body, 128*1024), body: res.Body, op: r.op()}
 	}

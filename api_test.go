@@ -365,8 +365,7 @@ func TestFiles(t *testing.T) {
 func TestErrorEnvelopes(t *testing.T) {
 	s := plainMock(t)
 	cx := ctx(t)
-	noToken := newClient(t, s, WithDeskToken("x"))
-	noToken, _ = New("ak_test", WithBaseURL(s.URL), WithWarningHandler(quiet))
+	noToken, _ := New("ak_test", WithBaseURL(s.URL), WithWarningHandler(quiet))
 	_, err := noToken.Stats(cx, okDesk)
 	e := errOf(t, err)
 	if !errors.Is(err, ErrRefused) || e.Kind != KindRefused || e.Reason != ReasonDeskTokenRequired || e.Status != 403 || e.ExitCode != 254 || e.Desk != okDesk || !strings.HasPrefix(e.RequestID, "req_") || e.Op != "GET /desks/"+okDesk+"/stats" {

@@ -161,6 +161,7 @@ type Error struct {
 	e2e bool
 }
 
+// Error says what went wrong, with the request and its id.
 func (e *Error) Error() string {
 	var b strings.Builder
 	b.WriteString("gaiadesk: ")
@@ -225,6 +226,7 @@ type CommandError struct {
 	Result *ExecResult
 }
 
+// Error is the *Error's message.
 func (e *CommandError) Error() string { return e.Err.Error() }
 
 // Is matches ErrCommand and ErrFailed.
@@ -243,6 +245,7 @@ type FingerprintMismatchError struct {
 	Expected, Actual string
 }
 
+// Error is the *Error's message.
 func (e *FingerprintMismatchError) Error() string { return e.Err.Error() }
 
 // Is matches ErrFingerprintMismatch and ErrUnreachable.
