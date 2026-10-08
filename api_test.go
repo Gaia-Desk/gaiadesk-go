@@ -70,6 +70,9 @@ func TestNewValidates(t *testing.T) {
 		func() (*Client, error) { return New("ak_x", WithSocketPath("/x.sock")) },
 		func() (*Client, error) { return New("ak_x", WithAdminToken("gdlocal_x")) },
 		func() (*Client, error) { return New("ak_x", WithRetry(RetryPolicy{MaxAttempts: -1})) },
+		func() (*Client, error) {
+			return New("ak_x", WithRetry(RetryPolicy{MaxAttempts: 3, MaxRetryWait: -time.Second}))
+		},
 	} {
 		_, err := f()
 		isUsage(t, err)
@@ -429,10 +432,10 @@ func TestRetries(t *testing.T) {
 	if errOf(t, err).Status != 502 {
 		t.Fatal(err)
 	}
-	// A Retry-After longer than MaxDelay is not waited.
-	s.FailNext(1, 429, "refused", ReasonRateLimited, "60")
+	// A Retry-After longer than MaxRetryWait (60 s) is not waited.
+	s.FailNext(1, 429, "refused", ReasonRateLimited, "120")
 	_, err = c.Stats(cx, okDesk)
-	if errOf(t, err).RetryAfter != time.Minute {
+	if errOf(t, err).RetryAfter != 2*time.Minute {
 		t.Fatal(err)
 	}
 	// WithoutRetry and NoRetry make one try.

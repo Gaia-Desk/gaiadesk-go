@@ -218,7 +218,7 @@ func nonEmpty(v, what string) (string, error) {
 }
 
 func (c *config) base(t Transport) (*Client, error) {
-	if c.retry.MaxAttempts < 0 || c.retry.BaseDelay < 0 || c.retry.MaxDelay < 0 {
+	if c.retry.MaxAttempts < 0 || c.retry.BaseDelay < 0 || c.retry.MaxDelay < 0 || c.retry.MaxRetryWait < 0 {
 		return nil, usageError("the retry policy's attempts and delays are >= 0")
 	}
 	if c.response < 0 || c.idle < 0 {

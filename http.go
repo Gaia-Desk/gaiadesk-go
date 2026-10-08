@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strconv"
 	"strings"
@@ -117,31 +117,6 @@ func headerInt(h http.Header, k string) int {
 	return v
 }
 
-// RetryPolicy says which failed calls the SDK tries again, and when.
-//
-// It retries a call refused for a rate limit or a busy desk (429
-// `rate_limited`, `desk_busy`; 409 `idempotency_key_in_flight`) after the
-// API's Retry-After (or the backoff); a GET also after a network failure
-// (the connection closed or reset before any answer) or a 502, 503 or 504.
-// A call that changes something is never sent again after it may have
-// reached the server, and a timeout (WithResponseTimeout, WithIdleTimeout)
-// is not retried. Desk operations sealed end to end are sealed afresh for each
-// try. A wait longer than MaxDelay is not waited: the error is returned.
-type RetryPolicy struct {
-	// MaxAttempts is the most tries in all (1: no retry).
-	MaxAttempts int
-	// BaseDelay is the first backoff; each next one doubles, with jitter.
-	BaseDelay time.Duration
-	// MaxDelay caps a backoff, and is the longest Retry-After waited.
-	MaxDelay time.Duration
-}
-
-// DefaultRetry is the default policy: three tries.
-var DefaultRetry = RetryPolicy{MaxAttempts: 3, BaseDelay: 500 * time.Millisecond, MaxDelay: 20 * time.Second}
-
-// NoRetry makes every call once.
-var NoRetry = RetryPolicy{MaxAttempts: 1}
-
 // request is one API call.
 type request struct {
 	method, path string
@@ -208,46 +183,6 @@ func (c *Client) once(ctx context.Context, r *request) (*http.Response, *e2e.Cal
 		return res, nil, err
 	}
 	return c.e2e.call(ctx, r, func(s *sealedReq) (*http.Response, error) { return c.send(ctx, r, s) })
-}
-
-// retryable says whether and when to try a failed request again.
-func (c *Client) retryable(err error, r *request, attempt int, p RetryPolicy) (time.Duration, bool) {
-	if attempt >= p.MaxAttempts {
-		return 0, false
-	}
-	e := AsError(err)
-	if e == nil || e.Kind == KindInterrupted || e.e2e {
-		return 0, false
-	}
-	safe := r.method == http.MethodGet || r.method == http.MethodHead
-	replayable := r.body == nil || r.replay
-	ok := false
-	switch {
-	case e.Reason == ReasonRateLimited || e.Reason == ReasonDeskBusy || e.Reason == ReasonIdempotencyInFlight:
-		ok = true
-	case e.Kind == KindNetwork && e.Status == 0:
-		ok = safe
-	case e.Status == 502 || e.Status == 503 || e.Status == 504:
-		ok = safe && e.Reason != ReasonDeskOpsDisabled && e.Reason != "api_disabled" && e.Reason != "local_api_off"
-	}
-	if !ok || !replayable {
-		return 0, false
-	}
-	if e.RetryAfter > 0 {
-		if e.RetryAfter > p.MaxDelay {
-			return 0, false
-		}
-		return e.RetryAfter, true
-	}
-	d := p.BaseDelay << (attempt - 1)
-	if d <= 0 || d > p.MaxDelay {
-		d = p.MaxDelay
-	}
-	// Full jitter in [d/2, d].
-	if d > 1 {
-		d = d/2 + time.Duration(rand.Int64N(int64(d/2)+1))
-	}
-	return d, true
 }
 
 // url builds the request URL.
@@ -320,10 +255,18 @@ func (c *Client) send(ctx context.Context, r *request, sealed *sealedReq) (*http
 	// within the response timeout, when a read of its body waits longer
 	// than the idle timeout, or once its body is closed.
 	rctx, cancel := context.WithCancelCause(ctx)
+	var conn connTrace
+	rctx = httptrace.WithClientTrace(rctx, conn.trace())
 	req, err := http.NewRequestWithContext(rctx, r.method, c.url(r.path, q), body)
 	if err != nil {
 		cancel(nil)
 		return nil, usageError("%s: %v", op, err)
+	}
+	if length >= 0 {
+		req.ContentLength = length
+		if length == 0 {
+			req.Body = http.NoBody
+		}
 	}
 	if r.method != http.MethodGet && r.method != http.MethodHead {
 		// net/http re-sends a request on a pooled connection that closed
@@ -332,11 +275,13 @@ func (c *Client) send(ctx context.Context, r *request, sealed *sealedReq) (*http
 		// (GetBody, set for a *bytes.Reader). A request that changes
 		// something may have reached the server: never let it be re-sent.
 		req.GetBody = nil
-	}
-	if length >= 0 {
-		req.ContentLength = length
-		if length == 0 {
-			req.Body = http.NoBody
+		// A bodiless one (a DELETE) gets an empty body it cannot rewind:
+		// net/http (HTTP/2 included) re-sends a request whose Body is nil or
+		// NoBody on some connection failures after it was sent. Over HTTP/1
+		// a DELETE's empty body is probed and sent as no body at all.
+		if req.Body == nil || req.Body == http.NoBody {
+			req.Body = noRewindEmpty{}
+			req.ContentLength = 0
 		}
 	}
 	req.Header = h
@@ -351,10 +296,20 @@ func (c *Client) send(ctx context.Context, r *request, sealed *sealedReq) (*http
 		if timedOut {
 			return nil, c.responseTimedOut(op, err)
 		}
+		notSent := conn.neverConnected(err)
 		if c.mapDialError != nil {
 			if e := c.mapDialError(err, op); e != nil {
+				var fp *FingerprintMismatchError
+				if own := AsError(e); own != nil && !errors.As(e, &fp) {
+					own.notSent = notSent || !conn.got.Load() && own.Reason == ReasonLocalAPIUnavailable
+				}
 				return nil, e
 			}
+		}
+		if connectTimedOut(err) {
+			e := newError(ClassUnreachable, "timeout", fmt.Sprintf("%s could not be reached in time: %v", c.where, err))
+			e.Op, e.Err = op, err
+			return nil, e
 		}
 		var own *Error
 		if errors.As(err, &own) {
@@ -366,6 +321,7 @@ func (c *Client) send(ctx context.Context, r *request, sealed *sealedReq) (*http
 		e := newError(ClassUnreachable, ReasonNetwork, fmt.Sprintf("%s could not be reached: %v", c.where, err))
 		e.Op = op
 		e.Err = err
+		e.notSent = notSent
 		return nil, e
 	}
 	if timedOut {
@@ -483,3 +439,10 @@ func get[T any](ctx context.Context, c *Client, r *request) (*T, error) {
 
 // deskPath is `/desks/{id}`.
 func deskPath(desk string) string { return "/desks/" + url.PathEscape(desk) }
+
+// noRewindEmpty is an empty request body net/http cannot rewind, so it
+// never re-sends the request on its own.
+type noRewindEmpty struct{}
+
+func (noRewindEmpty) Read([]byte) (int, error) { return 0, io.EOF }
+func (noRewindEmpty) Close() error             { return nil }

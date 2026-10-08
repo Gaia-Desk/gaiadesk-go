@@ -359,22 +359,28 @@ with `Result`), `ErrFingerprintMismatch`, and `e.Temporary()`.
 
 ## Retries, idempotency, rate limits
 
-`DefaultRetry` tries a call up to three times, with jittered exponential
-backoff from 500 ms, honouring `Retry-After`:
+**Retries.** A request is sent again only when that cannot run anything twice:
 
-- any call refused for a rate limit or a busy desk (429 `rate_limited`,
-  `desk_busy`; 409 `idempotency_key_in_flight`): the server did not run it;
-- a GET after a network failure (the connection closed or reset before any
-  answer) or a 502/503/504.
+- **The connection was never made** (DNS, refused, TLS handshake): any method — nothing was sent.
+- **The connection was lost after sending, or the answer was 502, 503 or 504**: GETs only (reads).
+  A 503 that says the API or desk operations are switched off is not retried.
+- **429** (`rate_limited`, `desk_busy`) and **409** `idempotency_key_in_flight`: any method — the server refused
+  it before acting.
 
-A call that changes something (an exec, an upload, a job, a token, a wake) is
-never sent again after it may have reached the server, with or without an
-idempotency key; a timeout is not retried either.
+Timeouts are never retried, and nothing is retried once its answer has begun. A call that changes something
+(POST, PUT, DELETE) is never sent again after it may have reached the server; an `Idempotency-Key` is sent but
+does not make a call retryable. 429 and 503 wait for `Retry-After`; one longer than `RetryPolicy.MaxRetryWait`
+(default 60 s) is not waited for — the error carries it. Otherwise the wait is exponential backoff with jitter:
+`RetryPolicy.BaseDelay` (default 250 ms) doubling up to `RetryPolicy.MaxDelay` (default 8 s), times a random 0.5–1.0.
+`RetryPolicy.MaxAttempts` (default 3: 2 retries, so 3 attempts in all) sets how many times; 1
+(`WithRetry(gaiadesk.NoRetry)`, or `WithoutRetry()` per call) turns retries off. Each retry of a sealed operation
+is sealed afresh.
 
-Sealed operations are sealed afresh for each try (a desk refuses a replayed
-seal). A `Retry-After` longer than `MaxDelay` (20 s) is returned as the
-error rather than waited. `WithRetry(gaiadesk.NoRetry)` or the per-call
-`WithoutRetry()` turn it off.
+Go's `net/http` itself re-sends only a GET (once, when the pooled connection it used was closed before any
+answer), or a request it could not write at all. The SDK hands it every other request with a body it can neither
+rewind nor treat as absent, the two cases in which it would re-send one (HTTP/1 re-sends any request carrying
+`Idempotency-Key` with a rewindable body; HTTP/2 a bodiless one on some stream errors), so a POST, PUT or DELETE
+is never re-sent behind your back.
 
 **Timeouts** (`WithResponseTimeout`, `WithIdleTimeout`, on every transport:
 `New`, `NewLocal`, `NewLAN`) make a server or proxy that stops answering an
@@ -392,12 +398,8 @@ error, never a hang:
   given with `WithHTTPClient` too. A connection that timed out is closed, not
   pooled; cancelling the context still stops a call at once.
 - A connection closed or reset before any answer is `ErrUnreachable` (kind
-  `network`) at once. Go's `net/http` itself re-sends a GET (or a request it
-  could not write at all) once when the pooled connection it used was closed
-  before any answer; it would also re-send any request carrying
-  `Idempotency-Key` whose body it can rewind, so the SDK takes that rewind
-  away from every request that changes something: `Exec`, uploads, jobs,
-  tokens and wakes go at most once.
+  `network`) at once; a connect that times out is kind `timeout`. What is
+  retried, and what `net/http` re-sends by itself: see Retries above.
 
 `CaptureResponse(&info)` fills `ResponseInfo`: `RequestID`, `RateLimitLimit`,
 `RateLimitRemaining`, `RateLimitReset`, `IdempotentReplayed`, `Held`, `Sealed`.

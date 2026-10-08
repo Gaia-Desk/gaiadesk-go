@@ -159,6 +159,9 @@ type Error struct {
 	Err error
 
 	e2e bool
+	// notSent: the connection was never made, so nothing was sent (any
+	// method may be retried).
+	notSent bool
 }
 
 // Error says what went wrong, with the request and its id.

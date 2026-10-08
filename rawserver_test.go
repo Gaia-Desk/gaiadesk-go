@@ -45,6 +45,9 @@ const (
 	// the connection alive; read the second one whole and close before any
 	// response byte: a pooled connection that dies under a request.
 	rawKeepAliveThenClose
+	// Answer every request with an error envelope (setStatus: its status,
+	// Retry-After and reason), keeping the connection alive.
+	rawStatus
 )
 
 // rawAnswer is the JSON rawKeepAliveThenClose answers with: a finished exec
@@ -62,11 +65,23 @@ type rawServer struct {
 	nconn    int
 	wg       sync.WaitGroup
 	done     chan struct{}
+	status   rawStatusAnswer
+}
+
+type rawStatusAnswer struct {
+	code               int
+	retryAfter, reason string
 }
 
 func newRawServer(t *testing.T, mode rawMode) *rawServer {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	return newRawServerOn(t, "127.0.0.1:0", mode)
+}
+
+// newRawServerOn listens on addr (a port that was free a moment ago).
+func newRawServerOn(t *testing.T, addr string, mode rawMode) *rawServer {
+	t.Helper()
+	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,6 +94,15 @@ func newRawServer(t *testing.T, mode rawMode) *rawServer {
 }
 
 func (s *rawServer) setMode(m rawMode) { s.mode.Store(int32(m)) }
+
+// setStatus answers every request with this status, Retry-After ("" for
+// none) and reason.
+func (s *rawServer) setStatus(code int, retryAfter, reason string) {
+	s.mu.Lock()
+	s.status = rawStatusAnswer{code, retryAfter, reason}
+	s.mu.Unlock()
+	s.setMode(rawStatus)
+}
 
 // count is how many requests with this method arrived.
 func (s *rawServer) count(method string) int {
@@ -155,6 +179,25 @@ func (s *rawServer) serve(c net.Conn, id int) {
 			}
 			body := fmt.Sprintf(rawAnswer, id)
 			_, _ = fmt.Fprintf(c, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s", len(body), body)
+			continue
+		case rawStatus:
+			if err := readBody(br, h); err != nil {
+				s.drop(c, false)
+				return
+			}
+			s.mu.Lock()
+			st := s.status
+			s.mu.Unlock()
+			kind := "unreachable"
+			if st.code == 429 || st.code == 409 {
+				kind = "refused"
+			}
+			body := fmt.Sprintf(`{"error":{"kind":%q,"message":"HTTP %d","reason":%q}}`, kind, st.code, st.reason)
+			extra := ""
+			if st.retryAfter != "" {
+				extra = "Retry-After: " + st.retryAfter + "\r\n"
+			}
+			_, _ = fmt.Fprintf(c, "HTTP/1.1 %d Error\r\nContent-Type: application/json\r\nContent-Length: %d\r\n%s\r\n%s", st.code, len(body), extra, body)
 			continue
 		}
 		// Held open, silent (any request body left unread), until the

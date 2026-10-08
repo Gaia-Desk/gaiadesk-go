@@ -19,10 +19,24 @@
   every request that is not a GET, and no longer retries a keyed POST after a
   network failure itself; lost connections and 502/503/504 are retried for
   GETs only, timeouts not at all.
+- **One retry policy, the same in every GaiaDesk SDK.** A connection that was
+  never made (DNS, refused, TLS handshake, a missing local socket or pipe) is
+  now retried for any method (before: GETs only), since nothing was sent; a
+  connect that times out is now kind `timeout` and not retried. Lost
+  connections and 502/503/504: GETs only (a 503 saying the API or desk
+  operations are off: never). 429 and 409 `idempotency_key_in_flight`: any
+  method. `Retry-After` is honoured for 429 and 503 only (a 502/504 now uses
+  the backoff). Defaults changed: `BaseDelay` 250 ms (was 500 ms), `MaxDelay`
+  8 s (was 20 s) and now caps the backoff only; the new
+  `RetryPolicy.MaxRetryWait` (60 s; 0 means 60 s) caps the `Retry-After`
+  waited (before: `MaxDelay`, 20 s). A DELETE (or an empty upload) now reaches
+  `net/http` with an empty body it cannot rewind, so neither HTTP/1 nor HTTP/2
+  can re-send it by itself; an empty upload is therefore sent chunked.
 - Proven on a raw-socket test server: closed or reset before any response
   byte (reads retried, bodies sent once), stalled mid-body, mid-JSON,
-  mid-stream, silent, a pooled connection that dies under a request, and a
-  300-request stress run.
+  mid-stream, silent, a pooled connection that dies under a request (GET,
+  DELETE, POST, PUT), refused then listening, 429/409/502/503/504 answers
+  with and without `Retry-After`, and a 300-request stress run.
 
 ## 0.1.0
 
