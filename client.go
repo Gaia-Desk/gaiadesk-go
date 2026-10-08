@@ -9,7 +9,7 @@ import (
 )
 
 // Version is this SDK's version.
-const Version = "0.1.1"
+const Version = "0.1.2"
 
 // DefaultBaseURL is the hosted GaiaDesk API.
 const DefaultBaseURL = "https://api.gaiadesk.net/v1"

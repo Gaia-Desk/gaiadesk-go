@@ -96,11 +96,10 @@ const (
 	ReasonE2EReplayed       = "e2e_replayed"
 	ReasonE2EOpMismatch     = "e2e_op_mismatch"
 
-	// Running as administrator (ExecRequest.Admin; docs/admin-access.md).
-	ReasonAdminScopeMissing = "admin_scope_missing" // the token has no `admin` scope (or a person asked)
-	ReasonAdminNotEnabled   = "admin_not_enabled"   // the desk owner's Admin access switch is off
-	ReasonAdminDenied       = "admin_denied"        // said no, no answer, nobody there, or a confined token
-	ReasonAdminUnavailable  = "admin_unavailable"   // no privileged process, or a desk too old for `admin`
+	// Administrator work (root / SYSTEM) is not available over the API: an
+	// exec asking for it, or a token minted with the `admin` scope, is refused
+	// with this reason. It runs only through `gaiadesk-cli exec --admin`.
+	ReasonAdminNotViaAPI    = "admin_not_via_api"
 	ReasonBlockedByOSPolicy = "blocked_by_os_policy"
 )
 
@@ -137,7 +136,7 @@ type Error struct {
 	// Message is what went wrong, for a person.
 	Message string
 	// Reason is the finer cause (`offline`, `rate_limited`, `e2e_required`,
-	// `admin_not_enabled`, …), or "".
+	// `admin_not_via_api`, …), or "".
 	Reason string
 	// Desk is the desk the error concerned, when the API said.
 	Desk string

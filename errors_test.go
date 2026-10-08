@@ -55,8 +55,8 @@ func TestErrorClassesAndKinds(t *testing.T) {
 	if !errors.Is(ce, ErrCommand) || !errors.Is(ce, ErrFailed) || AsError(ce) != ce.Err {
 		t.Fatal("command error")
 	}
-	x := &Exit{ExitCode: 254, Error: &CliError{Kind: "refused", Reason: ReasonAdminDenied, Message: "no"}}
-	if !errors.Is(x.Err(), ErrRefused) || AsError(x.Err()).Reason != ReasonAdminDenied {
+	x := &Exit{ExitCode: 254, Error: &CliError{Kind: "refused", Reason: ReasonAdminNotViaAPI, Message: "no"}}
+	if !errors.Is(x.Err(), ErrRefused) || AsError(x.Err()).Reason != ReasonAdminNotViaAPI {
 		t.Fatal(x.Err())
 	}
 	if (&Exit{ExitCode: 3}).Err() != nil {

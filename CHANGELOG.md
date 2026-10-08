@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.2
+
+- **Breaking: administrator work is not available over the API.** The API
+  (hosted, the desk's local API and its LAN gateway) refuses an exec asking
+  to run as administrator and a token minted with the `admin` scope, with
+  the reason `admin_not_via_api`; administrator work (root / SYSTEM) runs
+  only through `gaiadesk-cli exec --admin`. Removed: `ExecRequest.Admin`,
+  `ScopeAdmin`, and the reasons `ReasonAdminScopeMissing`,
+  `ReasonAdminNotEnabled`, `ReasonAdminDenied`, `ReasonAdminUnavailable`.
+  Added: `ReasonAdminNotViaAPI`, an `ErrRefused` (a refused exec is the
+  refused error with exit code 254; a refused mint is a 403 refusal).
+- Windows: the local transport's named pipe no longer goes through
+  `os.File`, whose reads and writes race on a shared file offset when
+  `net/http` uses a connection both ways at once (seen by the race
+  detector); it drives the overlapped handle directly.
+- CI: staticcheck pinned to v0.8.1, which reads Go 1.27's export data.
+
 ## 0.1.1
 
 - **Never hang on a dropped or stalled connection.** `WithResponseTimeout`

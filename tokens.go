@@ -16,10 +16,6 @@ const (
 	ScopeCp      = "cp"
 	ScopeForward = "forward"
 	ScopeJobs    = "jobs"
-	// ScopeAdmin lets a token ASK to run as administrator; never implied.
-	// The desk owner's Admin access switch (turned on at the desk) and its
-	// mode still decide. A confined token (Cwd, LowPriv) cannot have it.
-	ScopeAdmin = "admin"
 )
 
 // DefaultScopes are a new token's scopes when none are given.
@@ -76,11 +72,6 @@ func (c *Client) CreateToken(ctx context.Context, t TokenRequest, opts ...CallOp
 	expires := 7 * 24 * time.Hour
 	if t.Expires > 0 {
 		expires = t.Expires
-	}
-	for _, s := range scopes {
-		if s == ScopeAdmin && (t.Cwd != "" || t.LowPriv) {
-			return nil, usageError("a confined token (Cwd, LowPriv) cannot have the admin scope")
-		}
 	}
 	spec := map[string]any{"name": t.Name, "expires_secs": wholeSeconds(expires), "scopes": scopes}
 	if t.Cwd != "" {

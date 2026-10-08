@@ -51,21 +51,6 @@ func (s *Server) run(d *Desk, desk string, req obj, input []byte, deskToken stri
 		}
 		result := obj{"desk": desk, "exit": 0, "remote_code": 0, "duration_ms": 7, "notes": []string{}, "stderr": "warn\n", "timed_out": false,
 			"truncated": false, "error": nil, "mode": "pipes", "route": "the GaiaDesk server", "shell": spec["shell"]}
-		if spec["admin"] == true {
-			reason := ""
-			switch {
-			case !strings.Contains(deskToken, "admin"):
-				reason = "admin_scope_missing"
-			case !d.AdminEnabled:
-				reason = "admin_not_enabled"
-			}
-			if reason != "" {
-				refused := obj{"desk": desk, "exit": 254, "remote_code": nil, "duration_ms": 0, "notes": []string{}, "stdout": "", "stderr": "",
-					"timed_out": false, "truncated": false, "error": obj{"kind": "refused", "reason": reason, "message": reason + ": this desk does not run commands as administrator for this token", "desk": desk}}
-				return []event{exit(refused)}
-			}
-			cmd = "(as administrator) " + cmd
-		}
 		if cmd == "exit 3" {
 			result["exit"], result["remote_code"] = 3, 3
 		}

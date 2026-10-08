@@ -31,12 +31,6 @@ type ExecRequest struct {
 	// Timeout stops the command after this long (rounded up to seconds;
 	// 0: the API's limit, 15 minutes).
 	Timeout time.Duration
-	// Admin runs it as administrator (root / SYSTEM): it needs a desk token
-	// with the `admin` scope and the desk owner's Admin access; else the
-	// result is exit 254 with a `refused` error whose reason is one of
-	// ReasonAdminScopeMissing, ReasonAdminNotEnabled, ReasonAdminDenied,
-	// ReasonAdminUnavailable.
-	Admin bool
 	// Check makes a non-zero exit (or a timeout) a *CommandError.
 	Check bool
 }
@@ -93,9 +87,6 @@ func (r ExecRequest) spec() (map[string]any, error) {
 			return nil, usageError("stdin must be UTF-8 text over the API (it takes stdin as text)")
 		}
 		spec["stdin"] = string(b)
-	}
-	if r.Admin {
-		spec["admin"] = true
 	}
 	return spec, nil
 }

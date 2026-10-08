@@ -45,7 +45,7 @@ MIT-licensed. GaiaDesk itself is proprietary and not covered by this license.
 ## Install
 
 ```sh
-go get github.com/Gaia-Desk/gaiadesk-go@v0.1.0
+go get github.com/Gaia-Desk/gaiadesk-go@v0.1.2
 ```
 
 ## Quick start
@@ -151,18 +151,9 @@ the desk went away mid-stream), or 130 when you closed it or cancelled the
 context. The API takes stdin up front only (as text); it has no input while
 the command runs.
 
-**As administrator.** `ExecRequest{Admin: true}` runs the command as root
-(macOS, Linux) or SYSTEM (Windows). It needs a desk token with the `admin`
-scope **and** the desk owner's Admin access switch, turned on only at the desk;
-in its default mode the person at the desk is asked each time. Otherwise it
-is `ErrRefused` with one of these reasons:
-
-| `Reason` | means |
-|---|---|
-| `admin_scope_missing` | the token has no `admin` scope (or a person asked) |
-| `admin_not_enabled` | the desk's Admin access switch is off |
-| `admin_denied` | the person said no, nobody answered or was there, or a confined (`Cwd`/`LowPriv`) token |
-| `admin_unavailable` | no privileged GaiaDesk process, or a desk too old for `admin` |
+Administrator work (root / SYSTEM) is only available through
+`gaiadesk-cli exec --admin`, not the API: the API refuses it with
+`admin_not_via_api` (`ErrRefused`).
 
 ## Background jobs
 
@@ -214,8 +205,7 @@ tokens, _ := owner.Tokens(ctx, "123456789")
 _, _ = owner.RevokeToken(ctx, "123456789", tokens[0].ID)
 ```
 
-Scopes: `screen`, `exec`, `shell`, `cp`, `forward`, `jobs`, and `admin` (never
-implied; a confined token cannot have it). If a later desk fails,
+Scopes: `screen`, `exec`, `shell`, `cp`, `forward`, `jobs`. If a later desk fails,
 `CreateToken` returns the tokens already minted along with the error.
 
 ## Audit, webhooks, support sessions
@@ -345,7 +335,7 @@ if e := gaiadesk.AsError(err); e != nil {
 | `Class` (sentinel) | HTTP | means |
 |---|---|---|
 | `usage` (`ErrUsage`) | 400 | fix the call (`bad_body`, `idempotency_key_reused`, `too_large`, …); the SDK's own checks too, which send nothing |
-| `refused` (`ErrRefused`) | 401, 403, 409, 429 | `unauthenticated`, `missing_scope`, `desk_token_required`, `rate_limited`, `desk_busy`, `e2e_required`, `admin_*`, … |
+| `refused` (`ErrRefused`) | 401, 403, 409, 429 | `unauthenticated`, `missing_scope`, `desk_token_required`, `rate_limited`, `desk_busy`, `e2e_required`, `admin_not_via_api`, … |
 | `unreachable` (`ErrUnreachable`) | 404, 409, 503, 504 | `unknown_desk`, `offline`, `no_wake_path`, `network`, `local_api_unavailable`, … |
 | `connection_lost` (`ErrConnectionLost`) | 502 | the desk went away mid-operation; a broken download |
 | `failed` (`ErrFailed`) | 422 | allowed, and it did not succeed (no such job, a file that failed) |

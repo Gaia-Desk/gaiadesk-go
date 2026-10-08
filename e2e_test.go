@@ -315,7 +315,7 @@ func TestE2ETokens(t *testing.T) {
 	s := e2eMock(t)
 	cx := ctx(t)
 	mint := func(c *Client) (*MintResult, error) {
-		return c.CreateToken(cx, TokenRequest{Desks: []string{sealedDesk}, Name: "bot-" + canary, Expires: time.Hour, Scopes: []string{ScopeExec, ScopeAdmin}})
+		return c.CreateToken(cx, TokenRequest{Desks: []string{sealedDesk}, Name: "bot-" + canary, Expires: time.Hour, Scopes: []string{ScopeExec, ScopeShell}})
 	}
 	sealed, err := blind(t, s, func() (*MintResult, error) { return mint(owner(t, s)) })
 	if err != nil {
@@ -325,7 +325,7 @@ func TestE2ETokens(t *testing.T) {
 	if !reflect.DeepEqual(sealed, plain) || sealed.Tokens[0].Token.Label != "bot-"+canary || sealed.Tokens[0].Secret == "" {
 		t.Fatalf("%+v %+v", sealed, plain)
 	}
-	if !reflect.DeepEqual(sealed.Tokens[0].Token.Scopes, []string{"exec", "admin"}) {
+	if !reflect.DeepEqual(sealed.Tokens[0].Token.Scopes, []string{"exec", "shell"}) {
 		t.Fatalf("scopes %v", sealed.Tokens[0].Token.Scopes)
 	}
 	a := must[[]TokenInfo](t)(owner(t, s).Tokens(cx, sealedDesk))
@@ -502,44 +502,4 @@ func TestE2EHostileServer(t *testing.T) {
 	if r := must[*StatsReport](t)(c.Stats(cx, sealedDesk)); r.CPUPercent != 5 {
 		t.Fatal("honest again, fine again")
 	}
-}
-
-func TestE2EAdminExec(t *testing.T) {
-	s := e2eMock(t)
-	cx := ctx(t)
-	// No admin scope on the token: refused (200, exit 254) as a typed error.
-	e := sameError(t, s, func(c *Client) error {
-		_, err := c.Exec(cx, sealedDesk, ExecRequest{Command: "id -u", Admin: true})
-		return err
-	})
-	if e.Class != ClassRefused || e.Reason != ReasonAdminScopeMissing || e.ExitCode != 254 {
-		t.Fatalf("%+v", e)
-	}
-	// The scope, but the desk's switch is off.
-	e = sameError(t, s, func(c *Client) error {
-		_, err := c.Exec(cx, sealedDesk, ExecRequest{Command: "id -u", Admin: true}, UseDeskToken("gdagt_admin"))
-		return err
-	})
-	if e.Reason != ReasonAdminNotEnabled {
-		t.Fatalf("%+v", e)
-	}
-	s.Desk(sealedDesk).AdminEnabled = true
-	r := same(t, s, func(c *Client) (*ExecResult, error) {
-		return c.Exec(cx, sealedDesk, ExecRequest{Command: "id -u", Admin: true}, UseDeskToken("gdagt_admin"))
-	})
-	if !strings.Contains(r.Stdout, "(as administrator) id -u") {
-		t.Fatalf("%q", r.Stdout)
-	}
-	var sent map[string]any
-	for _, q := range s.Requests() {
-		if strings.HasSuffix(q.Path, "/exec") && q.Header.Get("GaiaDesk-E2E") == "" && !bytes.Contains(q.Body, []byte(`"e2e"`)) {
-			_ = json.Unmarshal(q.Body, &sent)
-		}
-	}
-	if sent["admin"] != true {
-		t.Fatalf("admin not in the plaintext spec: %v", sent)
-	}
-	// A confined token cannot be minted with admin.
-	_, err := owner(t, s).CreateToken(cx, TokenRequest{Desks: []string{sealedDesk}, Name: "x", Scopes: []string{ScopeAdmin}, Cwd: "/srv"})
-	isUsage(t, err)
 }

@@ -49,8 +49,6 @@ type Desk struct {
 	Wakeable bool
 	// HideKeyLookups: this many lookups list neither its key nor that it requires one.
 	HideKeyLookups int
-	// AdminEnabled: the owner's Admin access switch is on.
-	AdminEnabled bool
 	// Usage: every operation answers 400 usage.
 	Usage bool
 }

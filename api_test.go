@@ -189,10 +189,6 @@ func TestExecCheckAndNeverRan(t *testing.T) {
 	if e := errOf(t, err); e.Class != ClassRefused || e.Status != 403 || e.ExitCode != 254 || e.Reason != "token_refused" {
 		t.Fatalf("%v", err)
 	}
-	_, err = c.Exec(cx, okDesk, ExecRequest{Command: "x", Admin: true})
-	if e := errOf(t, err); e.Class != ClassRefused || e.Reason != ReasonAdminScopeMissing || e.ExitCode != 254 || e.Desk != okDesk {
-		t.Fatalf("%+v", e)
-	}
 }
 
 func TestJobsAndTokensSpecs(t *testing.T) {
@@ -237,8 +233,8 @@ func TestJobsAndTokensSpecs(t *testing.T) {
 	if m.Tokens[0].Secret != "gdagt_minted_secret" || m.Tokens[0].Desk != okDesk {
 		t.Fatalf("%+v", m)
 	}
-	_ = must[*MintResult](t)(o.CreateToken(cx, TokenRequest{Desks: []string{okDesk}, Name: "ops", Scopes: []string{ScopeExec, ScopeShell, ScopeAdmin}}))
-	jsonEq(t, body(t, s.Last()), `{"name":"ops","expires_secs":604800,"scopes":["exec","shell","admin"]}`)
+	_ = must[*MintResult](t)(o.CreateToken(cx, TokenRequest{Desks: []string{okDesk}, Name: "ops", Scopes: []string{ScopeExec, ScopeShell}}))
+	jsonEq(t, body(t, s.Last()), `{"name":"ops","expires_secs":604800,"scopes":["exec","shell"]}`)
 	// A later desk failing: the tokens already minted come with the error.
 	partial, err := o.CreateToken(cx, TokenRequest{Desks: []string{okDesk, "000000001"}, Name: "bot"})
 	if errOf(t, err).Reason != ReasonUnknownDesk || partial == nil || len(partial.Tokens) != 1 {
@@ -248,7 +244,7 @@ func TestJobsAndTokensSpecs(t *testing.T) {
 	if l := s.Last(); l.Method != "DELETE" || l.Path != "/v1/desks/"+okDesk+"/tokens/9f3a1c2b7d004e11" {
 		t.Fatalf("%+v", l)
 	}
-	for _, bad := range []TokenRequest{{Name: "x"}, {Desks: []string{okDesk}}, {Desks: []string{okDesk}, Name: "x", Scopes: []string{}}, {Desks: []string{okDesk}, Name: "x", Scopes: []string{ScopeAdmin}, LowPriv: true}} {
+	for _, bad := range []TokenRequest{{Name: "x"}, {Desks: []string{okDesk}}, {Desks: []string{okDesk}, Name: "x", Scopes: []string{}}} {
 		_, err := o.CreateToken(cx, bad)
 		isUsage(t, err)
 	}
