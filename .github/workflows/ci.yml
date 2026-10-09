@@ -34,6 +34,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: stable
+          # staticcheck v0.8.1 (the newest) cannot read Go 1.27.2's export
+          # data ("export data version 5"): lint on 1.26 until a release can.
+          # The test jobs above still run on stable.
+          go-version: "1.26.x"
       - run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
       - run: GOOS=windows go vet ./...
