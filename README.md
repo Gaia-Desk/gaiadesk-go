@@ -1,8 +1,15 @@
 # GaiaDesk SDK for Go
 
-Drive your GaiaDesk machines ("desks") from Go through GaiaDesk's Platform
-API: list them and see why one is offline, wake them, run commands and get
-exit codes back, stream output, copy files, run background jobs, read stats,
+[![CI](https://github.com/Gaia-Desk/gaiadesk-go/actions/workflows/ci.yml/badge.svg)](https://github.com/Gaia-Desk/gaiadesk-go/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Gaia-Desk/gaiadesk-go.svg)](https://pkg.go.dev/github.com/Gaia-Desk/gaiadesk-go)
+[![License: MIT](https://img.shields.io/github/license/Gaia-Desk/gaiadesk-go)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/Gaia-Desk/gaiadesk-go)](https://github.com/Gaia-Desk/gaiadesk-go/releases/latest)
+
+The official Go SDK (client library) for the [GaiaDesk](https://gaiadesk.net)
+remote desktop Platform API, for remote access automation from Go services,
+CI and AI agents. Drive your GaiaDesk machines ("desks"): list them and see
+why one is offline, wake them, run commands on remote computers and get exit
+codes back, stream output, transfer files, run background jobs, read stats,
 mint and revoke scoped agent tokens, read the audit trail, manage webhooks,
 and create support sessions for the embed SDK. Desk operations are
 **end-to-end encrypted** whenever the desk can open them.
@@ -13,7 +20,7 @@ and create support sessions for the embed SDK. Desk operations are
 - Three transports, one API: the **hosted API** (`New`), a desk's **own API**
   for code running on it (`NewLocal`), and a desk's **LAN gateway** (`NewLAN`)
 
-Other GaiaDesk developer tools: the
+Other GaiaDesk developer tools (all of them under [Links](#links)): the
 [TypeScript SDK](https://github.com/Gaia-Desk/gaiadesk-typescript),
 the [Python SDK](https://github.com/Gaia-Desk/gaiadesk-python) and the
 [MCP server](https://github.com/Gaia-Desk/gaiadesk-mcp). This SDK covers
@@ -41,6 +48,7 @@ MIT-licensed. GaiaDesk itself is proprietary and not covered by this license.
 - [API coverage](#api-coverage)
 - [Examples](#examples)
 - [Development](#development)
+- [Links](#links)
 
 ## Install
 
@@ -452,3 +460,20 @@ operations, seals its events back, and records every request raw), so they
 prove both that a sealed call answers exactly what the plaintext one does and
 that the API saw none of its command, environment, stdin, paths or bytes.
 `internal/e2e` holds the crypto and its vector tests.
+
+## Links
+
+- Package: [`github.com/Gaia-Desk/gaiadesk-go` on pkg.go.dev](https://pkg.go.dev/github.com/Gaia-Desk/gaiadesk-go)
+- Documentation: [Getting started](https://gaiadesk.net/docs/getting-started),
+  [The CLI for scripts and AI agents](https://gaiadesk.net/docs/cli-for-agents),
+  [Agent access](https://gaiadesk.net/docs/agent-access),
+  [Embedding GaiaDesk](https://gaiadesk.net/docs/embedding-gaiadesk) (support sessions),
+  [Security](https://gaiadesk.net/docs/security)
+- GaiaDesk SDKs: [TypeScript](https://github.com/Gaia-Desk/gaiadesk-typescript), [Python](https://github.com/Gaia-Desk/gaiadesk-python),
+  Go (this one), [Java and Kotlin](https://github.com/Gaia-Desk/gaiadesk-java),
+  [.NET](https://github.com/Gaia-Desk/gaiadesk-dotnet), [Ruby](https://github.com/Gaia-Desk/gaiadesk-ruby),
+  [PHP](https://github.com/Gaia-Desk/gaiadesk-php), [Rust](https://github.com/Gaia-Desk/gaiadesk-rust);
+  the [MCP server](https://github.com/Gaia-Desk/gaiadesk-mcp) for AI assistants; the
+  [command line](https://github.com/Gaia-Desk/gaiadesk-cli), `gaiadesk-cli`
+- [Changelog](CHANGELOG.md) and [releases](https://github.com/Gaia-Desk/gaiadesk-go/releases)
+- [Security policy](https://github.com/Gaia-Desk/gaiadesk-go/security/policy)
